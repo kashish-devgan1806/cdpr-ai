@@ -5,83 +5,157 @@ import os
 
 #CONFIGURATION
 
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+
+HEADERS = {
+    "Authorization": f"token {GITHUB_TOKEN}"
+} if GITHUB_TOKEN else {}
+
 REPOS = [
-    ("pallets","flask"),
-    ("tiangolo","fastapi"),
-    ("scikit-learn","scikit-learn")
+    ("pallets", "flask"),
+    ("tiangolo", "fastapi"),
+    ("django", "django"),
+    ("numpy", "numpy"),
+    ("pytorch", "pytorch"),
+    ("tensorflow", "tensorflow"),
+    ("scikit-learn", "scikit-learn"),
+    ("keras-team", "keras"),
+    ("microsoft", "vscode"),
+    ("facebook", "react"),
+    ("huggingface", "transformers"),
+    ("langchain-ai", "langchain")
 ]
 
-OUTPUT_PATH = "data/github_tasks.csv"
+OUTPUT_FILE = "data/github_commits_large.csv"
 
-#GITHUB API LOGIC 
+COMMITS_PER_PAGE = 100
+MAX_PAGES = 30   # Increase for more data
 
-def fetch_commits(owner, repo, max_pages=5):
-    print(f"Fetching commits from {owner}/{repo}")
-    
+
+# =========================
+# RATE LIMIT HANDLER
+# =========================
+
+def handle_rate_limit(response):
+
+    if response.status_code == 403:
+
+        print("Rate limit hit. Sleeping for 60 seconds...")
+        time.sleep(60)
+        return True
+
+    return False
+
+
+# =========================
+# FETCH COMMITS
+# =========================
+
+def fetch_repo_commits(owner, repo):
+
+    print(f"\nCollecting from {owner}/{repo}")
+
     commits = []
-    base_url = f"https://api.github.com/repos/{owner}/{repo}/commits"
-    
-    for page in range(1, max_pages + 1):
-        url = f"{base_url}?page={page}&per_page=50"
-        
-        response = requests.get(url)
+
+    for page in range(1, MAX_PAGES + 1):
+
+        url = f"https://api.github.com/repos/{owner}/{repo}/commits"
+
+        params = {
+            "per_page": COMMITS_PER_PAGE,
+            "page": page
+        }
+
+        response = requests.get(url, headers=HEADERS, params=params)
+
+        if handle_rate_limit(response):
+            response = requests.get(url, headers=HEADERS, params=params)
+
         if response.status_code != 200:
-            print(f"Failed to fetch commits for {owner}/{repo} (status code: {response.status_code})")
+            print(f"Error fetching page {page}")
             break
-        
+
         data = response.json()
-        
+
         if not data:
             break
-        
+
         for commit in data:
-            author = commit["commit"]["author"]
-            
-            commits.append({
-                "repo": repo,
-                "developer": author["name"],
-                "date": author["date"],
-                "message_length": len(commit["commit"]["message"]),
-            })
-            
-        time.sleep(0.5)  
+
+            try:
+
+                author = commit["commit"]["author"]
+
+                commits.append({
+
+                    "repo": repo,
+                    "developer": author["name"],
+                    "date": author["date"],
+                    "message_length": len(commit["commit"]["message"]),
+                    "commit_id": commit["sha"]
+
+                })
+
+            except:
+                continue
+
+        print(f"Page {page} collected")
+
+        time.sleep(0.2)
+
     return commits
 
-#FEATURE ENGINEERING
 
-def create_dataset(all_commits):
-    df = pd.DataFrame(all_commits)
+# =========================
+# FEATURE ENGINEERING
+# =========================
+
+def engineer_features(df):
+
+    print("\nEngineering features...")
+
     df["date"] = pd.to_datetime(df["date"])
-    
-    commit_counts = df.groupby(["repo", "developer",]).size().reset_index(name = "total_commits")
-    
-    msg_length = df.groupby(["repo", "developer",])["message_length"].mean().reset_index()
-    
-    dataset = commit_counts.merge(msg_length, on=["repo", "developer"])
-    
-    dataset["risk_label"] = dataset["total_commits"].apply(
-        lambda x: "HIGH" if x <= 3 else "LOW"
-    )
-    
-    return dataset
 
-#MAIN LOGIC
+    df["commit_hour"] = df["date"].dt.hour
+    df["day_of_week"] = df["date"].dt.dayofweek
+    df["is_weekend"] = df["day_of_week"].apply(lambda x: 1 if x >= 5 else 0)
+
+    # heuristic productivity risk
+    df["risk_label"] = df["message_length"].apply(
+        lambda x: 1 if x < 15 else 0
+    )
+
+    return df
+
+
+# =========================
+# MAIN PIPELINE
+# =========================
 
 def main():
+
     os.makedirs("data", exist_ok=True)
+
     all_commits = []
+
     for owner, repo in REPOS:
-        commits = fetch_commits(owner, repo)
-        all_commits.extend(commits)
-        
-    dataset = create_dataset(all_commits)
-    dataset.to_csv(OUTPUT_PATH, index=False)
-    
-    print("\nDATASET CREATED SUCCESFULLY!")
-    print(f"Saved to {OUTPUT_PATH}")
-    print("\nPreview:")
-    print(dataset.head())
-    
-    
+
+        repo_commits = fetch_repo_commits(owner, repo)
+
+        all_commits.extend(repo_commits)
+
+        print(f"Total commits collected so far: {len(all_commits)}")
+
+    df = pd.DataFrame(all_commits)
+
+    df = engineer_features(df)
+
+    df.to_csv(OUTPUT_FILE, index=False)
+
+    print("\nDataset collection complete.")
+    print(f"Total entries: {len(df)}")
+    print(f"Saved to: {OUTPUT_FILE}")
+
+
 if __name__ == "__main__":
     main()
