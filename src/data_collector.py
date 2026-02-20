@@ -7,8 +7,12 @@ import os
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
+if not GITHUB_TOKEN:
+    print("WARNING: No GitHub token found. Rate limits will be very low.")
+
 HEADERS = {
-    "Authorization": f"token {GITHUB_TOKEN}"
+    "Authorization": f"token {GITHUB_TOKEN}",
+    "Accept": "application/vnd.github+json"
 } if GITHUB_TOKEN else {}
 
 REPOS = [
@@ -32,24 +36,20 @@ COMMITS_PER_PAGE = 100
 MAX_PAGES = 30   # Increase for more data
 
 
-# =========================
 # RATE LIMIT HANDLER
-# =========================
 
 def handle_rate_limit(response):
 
     if response.status_code == 403:
 
-        print("Rate limit hit. Sleeping for 60 seconds...")
-        time.sleep(60)
+        print("Rate limit hit. Sleeping for 10 seconds...")
+        time.sleep(10)
         return True
 
     return False
 
 
-# =========================
 # FETCH COMMITS
-# =========================
 
 def fetch_repo_commits(owner, repo):
 
@@ -106,9 +106,7 @@ def fetch_repo_commits(owner, repo):
     return commits
 
 
-# =========================
 # FEATURE ENGINEERING
-# =========================
 
 def engineer_features(df):
 
@@ -128,33 +126,40 @@ def engineer_features(df):
     return df
 
 
-# =========================
 # MAIN PIPELINE
-# =========================
 
 def main():
-
     os.makedirs("data", exist_ok=True)
-
+    temp_file = "data/temp_commits.csv"
     all_commits = []
 
+    # Resume if temp file exists
+    if os.path.exists(temp_file):
+        try:
+            print("Resuming from saved progress...")
+            temp_df = pd.read_csv(temp_file)
+
+            if not temp_df.empty:
+                all_commits = temp_df.to_dict("records")
+            else:
+                print("Temp file empty. Starting fresh.")
+
+        except Exception as e:
+            print("Temp file corrupted. Starting fresh.")
+            all_commits = []
+
     for owner, repo in REPOS:
-
         repo_commits = fetch_repo_commits(owner, repo)
-
         all_commits.extend(repo_commits)
 
-        print(f"Total commits collected so far: {len(all_commits)}")
+        # Autosave every repo
+        pd.DataFrame(all_commits).to_csv(temp_file, index=False)
+        print(f"Autosaved progress: {len(all_commits)} commits")
 
     df = pd.DataFrame(all_commits)
-
     df = engineer_features(df)
-
-    df.to_csv(OUTPUT_FILE, index=False)
-
-    print("\nDataset collection complete.")
-    print(f"Total entries: {len(df)}")
-    print(f"Saved to: {OUTPUT_FILE}")
+    df.to_csv("data/github_commits_large.csv", index=False)
+    print(f"\nFinal dataset size: {len(df)}")
 
 
 if __name__ == "__main__":
