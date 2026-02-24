@@ -3,6 +3,5 @@ __pycache__/
 *.pyc
 *.pkl
 .env
-data/*.csv
 model/
 .DS_Store
