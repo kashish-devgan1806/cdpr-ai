@@ -1,7 +1,6 @@
 venv/
 __pycache__/
 *.pyc
-*.pkl
 .env
-model/
 .DS_Store
+data/temp_commits.csv

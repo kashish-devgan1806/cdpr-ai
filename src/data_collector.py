@@ -2,6 +2,9 @@ import requests
 import pandas as pd 
 import time 
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 #CONFIGURATION
 
@@ -112,16 +115,45 @@ def engineer_features(df):
 
     print("\nEngineering features...")
 
+    # Convert date
     df["date"] = pd.to_datetime(df["date"])
 
+    # Basic time features
     df["commit_hour"] = df["date"].dt.hour
     df["day_of_week"] = df["date"].dt.dayofweek
-    df["is_weekend"] = df["day_of_week"].apply(lambda x: 1 if x >= 5 else 0)
+    df["is_weekend"] = (df["day_of_week"] >= 5).astype(int)
 
-    # heuristic productivity risk
-    df["risk_label"] = df["message_length"].apply(
-        lambda x: 1 if x < 15 else 0
-    )
+    # =========================
+    # BEHAVIORAL BASELINE PER DEVELOPER
+    # =========================
+
+    dev_stats = df.groupby("developer")["commit_hour"].agg(
+        dev_mean_hour="mean",
+        dev_std_hour="std"
+    ).reset_index()
+
+    # Fill NaN std (happens if developer has only 1 commit)
+    dev_stats["dev_std_hour"] = dev_stats["dev_std_hour"].fillna(0)
+
+    # Merge back
+    df = df.merge(dev_stats, on="developer", how="left")
+
+    # =========================
+    # DEVIATION FEATURE
+    # =========================
+
+    df["hour_deviation"] = abs(df["commit_hour"] - df["dev_mean_hour"])
+
+    # =========================
+    # REALISTIC RISK LABEL (NON-DETERMINISTIC)
+    # =========================
+
+    df["risk_label"] = (
+        (df["hour_deviation"] > df["dev_std_hour"]) &
+        (df["dev_std_hour"] > 0)
+    ).astype(int)
+
+    print("Features engineered successfully.")
 
     return df
 
