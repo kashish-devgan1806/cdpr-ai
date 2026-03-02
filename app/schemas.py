@@ -8,7 +8,8 @@ class CommitData(BaseModel):
     message_length: int = Field(..., ge=0)
 
 class PredictionResponse(BaseModel):
-    prediction: int
-    probability: float
+    risk_level: str
+    risk_score: float
+    severity: str
     model_version: str
     latency_ms: float
