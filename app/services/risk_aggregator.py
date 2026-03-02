@@ -7,41 +7,35 @@ def generate_developer_risk_report(model_data, df):
     model = model_data["model"]
     scaler = model_data["scaler"]
 
-    risk_records = []
+    # Compute engineered features
+    df = df.copy()
 
-    for _, row in df.iterrows():
+    df["is_weekend"] = (df["day_of_week"] >= 5).astype(int)
+    df["hour_deviation"] = abs(df["commit_hour"] - df["dev_mean_hour"])
 
-        is_weekend = 1 if row["day_of_week"] >= 5 else 0
-        hour_deviation = abs(row["commit_hour"] - row["dev_mean_hour"])
+    feature_matrix = df[[
+        "commit_hour",
+        "day_of_week",
+        "is_weekend",
+        "hour_deviation",
+        "message_length"
+    ]].values
 
-        input_array = np.array([[
-            row["commit_hour"],
-            row["day_of_week"],
-            is_weekend,
-            hour_deviation,
-            row["message_length"]
-        ]])
+    # Scale once (vectorized)
+    scaled = scaler.transform(feature_matrix)
 
-        input_scaled = scaler.transform(input_array)
+    # Predict once (vectorized)
+    probabilities = model.predict_proba(scaled)[:, 1]
 
-        probability = model.predict_proba(input_scaled)[0][1]
+    df["risk_score"] = probabilities
 
-        risk_records.append({
-            "developer": row["developer"],
-            "risk_score": probability
-        })
-
-    risk_df = pd.DataFrame(risk_records)
-
-    # Aggregate by developer
+    # Aggregate per developer
     summary = (
-        risk_df
-        .groupby("developer")["risk_score"]
+        df.groupby("developer")["risk_score"]
         .mean()
         .reset_index()
     )
 
-    # Professional risk classification
     def classify(score):
         if score >= 0.75:
             return "HIGH"
