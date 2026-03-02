@@ -4,6 +4,9 @@ from app.model_loader import load_model
 from app.services.predictor import run_prediction
 from app.config import MODEL_VERSION
 
+import pandas as pd
+from app.services.risk_aggregator import generate_developer_risk_report
+
 import logging
 
 # ---------------------------------------------------
@@ -50,9 +53,7 @@ def predict(data: CommitData):
 
     prediction, probability, latency = run_prediction(model_data, data)
 
-    # ---------------------------------------------------
     # Convert Probability → Professional Risk Levels
-    # ---------------------------------------------------
     if probability >= 0.75:
         risk_level = "HIGH"
         severity = "Critical"
@@ -76,4 +77,43 @@ def predict(data: CommitData):
         "severity": severity,
         "model_version": MODEL_VERSION,
         "latency_ms": latency
+    }
+
+
+# ---------------------------------------------------
+# Manager Alerts Endpoint
+# ---------------------------------------------------
+@app.get("/manager/alerts")
+def manager_alerts():
+
+    logger.info("Manager alert report requested")
+
+    try:
+        df = pd.read_csv("data/processed_commits.csv")
+    except Exception as e:
+        logger.error(f"Failed to load dataset: {e}")
+        return {"error": "Unable to load processed dataset"}
+
+    report = generate_developer_risk_report(model_data, df)
+
+    high_risk = report[report["risk_level"] == "HIGH"]
+
+    alert_message = None
+
+    if len(high_risk) > 0:
+        alert_message = (
+            f"⚠ {len(high_risk)} developer(s) show sustained high behavioral deviation patterns."
+        )
+
+    logger.info(
+        f"Manager report generated | "
+        f"Total Developers: {len(report)} | "
+        f"High Risk Count: {len(high_risk)}"
+    )
+
+    return {
+        "total_developers": int(len(report)),
+        "high_risk_count": int(len(high_risk)),
+        "alerts": alert_message,
+        "high_risk_developers": high_risk.to_dict(orient="records")
     }

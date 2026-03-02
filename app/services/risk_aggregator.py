@@ -1,30 +1,33 @@
 import pandas as pd
-import numpy as np
 
 
 def generate_developer_risk_report(model_data, df):
 
     model = model_data["model"]
     scaler = model_data["scaler"]
+    features = model_data["features"]
 
-    # Compute engineered features
     df = df.copy()
 
+    # Feature engineering
     df["is_weekend"] = (df["day_of_week"] >= 5).astype(int)
     df["hour_deviation"] = abs(df["commit_hour"] - df["dev_mean_hour"])
 
-    feature_matrix = df[[
+    # Keep DataFrame (DO NOT convert to .values)
+    feature_df = df[[
         "commit_hour",
         "day_of_week",
         "is_weekend",
         "hour_deviation",
         "message_length"
-    ]].values
+    ]]
 
-    # Scale once (vectorized)
-    scaled = scaler.transform(feature_matrix)
+    # Enforce correct training feature order
+    feature_df = feature_df[features]
 
-    # Predict once (vectorized)
+    # Scale with column names preserved
+    scaled = scaler.transform(feature_df)
+
     probabilities = model.predict_proba(scaled)[:, 1]
 
     df["risk_score"] = probabilities
