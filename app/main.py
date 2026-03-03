@@ -112,8 +112,8 @@ def manager_alerts():
     )
 
     return {
-        "total_developers": int(len(report)),
-        "high_risk_count": int(len(high_risk)),
-        "alerts": alert_message,
-        "high_risk_developers": high_risk.to_dict(orient="records")
-    }
+    "total_developers": int(len(report)),
+    "high_risk_count": int(len(high_risk)),
+    "alerts": alert_message,
+    "developers": report.to_dict(orient="records")
+}
